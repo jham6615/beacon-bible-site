@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -9,11 +9,16 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Fonts, HighlightPalette, MaxContentWidth, Spacing } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme } from '@/hooks/use-theme';
+import type { Note } from '@/lib/annotations';
 import type { Chapter, Verse } from '@/lib/bible';
 import { loadChapterVerses } from '@/lib/bible/versions';
+import { chapterKey, useAnnotationsStore } from '@/store/annotations-store';
+import { useNoteEditorStore } from '@/store/note-editor-store';
 import { useSelectionStore } from '@/store/selection-store';
+import { READER_FONT_SIZES, useSettingsStore } from '@/store/settings-store';
 import { useVersionStore } from '@/store/versions-store';
 
 type Props = {
@@ -38,6 +43,34 @@ export function ChapterPage({ chapter, width, pageHeight, bottomInset, bookId, b
   const toggleVerse = useSelectionStore((s) => s.toggleVerse);
   const version = useVersionStore((s) => s.code);
   const isSheet = mode === 'sheet';
+
+  // Reader text size from the Aa display panel. Line height and verse-number size keep the
+  // original 19pt proportions (32/19 and 12/19) at every step.
+  const fontIndex = useSettingsStore((s) => s.fontIndex);
+  const fontSize = READER_FONT_SIZES[fontIndex] ?? 19;
+  const lineHeight = Math.round(fontSize * (32 / 19));
+  const verseNumSize = Math.max(10, Math.round(fontSize * (12 / 19)));
+
+  // The user's highlights + notes for this chapter (empty until signed in).
+  const isDark = useColorScheme() === 'dark';
+  const annotations = useAnnotationsStore((s) => s.chapters[chapterKey(bookId, chapter.chapter)]);
+  const loadAnnotations = useAnnotationsStore((s) => s.loadChapter);
+  const annotationsRefreshKey = useAnnotationsStore((s) => s.refreshKey);
+  const openNoteEditor = useNoteEditorStore((s) => s.open);
+
+  // refreshKey bumps on sign-in/out so the chapter refetches under the new account.
+  useEffect(() => {
+    loadAnnotations(bookId, chapter.chapter);
+  }, [bookId, chapter.chapter, annotationsRefreshKey, loadAnnotations]);
+
+  // ✎ marker on the first verse of each noted range.
+  const noteByFirstVerse = useMemo(() => {
+    const m = new Map<number, Note>();
+    for (const n of annotations?.notes ?? []) {
+      if (n.verses.length) m.set(Math.min(...n.verses), n);
+    }
+    return m;
+  }, [annotations?.notes]);
 
   const [verses, setVerses] = useState<Verse[]>(version === 'web' ? chapter.verses : []);
   const [loading, setLoading] = useState(version !== 'web');
@@ -121,20 +154,46 @@ export function ChapterPage({ chapter, width, pageHeight, bottomInset, bookId, b
           {loading ? (
             <ActivityIndicator style={styles.loading} color={theme.textSecondary} />
           ) : (
-            <Text style={[styles.body, { color: theme.text, fontFamily: Fonts.serif }]}>
+            <Text style={{ color: theme.text, fontFamily: Fonts.serif, fontSize, lineHeight }}>
               {verses.map((v) => {
                 const isSelected = selectedVerses.includes(v.verse);
+                const highlight = annotations?.highlights[v.verse];
+                const note = noteByFirstVerse.get(v.verse);
+                // Selection (temporary) paints over any saved highlight; a dotted underline keeps
+                // the selected range readable when it sits on top of highlighted verses.
+                const background = isSelected
+                  ? theme.backgroundSelected
+                  : highlight
+                    ? HighlightPalette[highlight][isDark ? 'dark' : 'light']
+                    : undefined;
+                const onToggle = (e: { nativeEvent: { pageY: number } }) => {
+                  anchor.current = { pageY: e.nativeEvent.pageY, scrollY: scrollY.current };
+                  toggleVerse({ bookId, bookName, chapter: chapter.chapter, verse: v.verse });
+                };
                 return (
                   <Text
                     key={v.verse}
-                    onPress={(e) => {
-                      anchor.current = { pageY: e.nativeEvent.pageY, scrollY: scrollY.current };
-                      toggleVerse({ bookId, bookName, chapter: chapter.chapter, verse: v.verse });
-                    }}
-                    style={isSelected ? { backgroundColor: theme.backgroundSelected } : undefined}
+                    onPress={onToggle}
+                    onLongPress={onToggle}
+                    style={[
+                      background ? { backgroundColor: background } : null,
+                      isSelected ? styles.selectedVerse : null,
+                    ]}
                   >
-                    <Text style={[styles.verseNumber, { color: theme.textSecondary }]}>{`${v.verse} `}</Text>
+                    <Text style={[styles.verseNumber, { color: theme.textSecondary, fontSize: verseNumSize }]}>{`${v.verse} `}</Text>
                     {v.text}
+                    {note ? (
+                      <Text
+                        accessibilityLabel="Open note"
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          openNoteEditor({ mode: 'edit', note });
+                        }}
+                        style={{ color: theme.textSecondary }}
+                      >
+                        {' ✎'}
+                      </Text>
+                    ) : null}
                     {'  '}
                   </Text>
                 );
@@ -151,7 +210,8 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: Spacing.four, paddingTop: Spacing.three, alignItems: 'center' },
   page: { width: '100%', maxWidth: MaxContentWidth },
   chapterNumber: { fontSize: 44, fontWeight: '700', marginBottom: Spacing.three },
-  body: { fontSize: 19, lineHeight: 32 },
-  verseNumber: { fontSize: 12, fontWeight: '700' },
+  verseNumber: { fontWeight: '700' },
+  // Dotted on iOS/web; Android falls back to a solid underline.
+  selectedVerse: { textDecorationLine: 'underline', textDecorationStyle: 'dotted' },
   loading: { marginTop: Spacing.five },
 });

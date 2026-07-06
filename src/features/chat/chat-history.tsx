@@ -1,4 +1,4 @@
-import { Modal, StyleSheet, View } from 'react-native';
+import { Modal, Platform, StyleSheet, View } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 import { useChatStore } from '@/store/chat-store';
@@ -13,6 +13,11 @@ export function ChatHistory({ onOpened }: { onOpened?: () => void }) {
   const open = useChatStore((s) => s.historyOpen);
   const setOpen = useChatStore((s) => s.setHistoryOpen);
   const close = () => setOpen(false);
+
+  // react-native-web's Modal doesn't reliably hide when `visible` flips back to false (RNW 0.21 +
+  // React 19): the portal stays painted at full opacity. Unmount it entirely on web instead.
+  // Native keeps the Modal mounted so iOS can play its animated dismissal.
+  if (Platform.OS === 'web' && !open) return null;
 
   return (
     <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>

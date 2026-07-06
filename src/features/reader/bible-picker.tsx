@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { BookSummary } from '@/lib/bible';
+import { useVersionStore } from '@/store/versions-store';
 import { BackRow, SearchInput } from './picker-chrome';
 
 type Props = {
@@ -19,18 +20,28 @@ type Props = {
  */
 export function BiblePicker({ books, currentBookId, currentChapter, onSelect }: Props) {
   const theme = useTheme();
+  const localizedNames = useVersionStore((s) => s.bookNames);
   // The book whose chapters are showing; null = show the book list. Starts on the current book.
   const [openBookId, setOpenBookId] = useState<string | null>(currentBookId);
   const [query, setQuery] = useState('');
 
+  // Book names in the active version's language (books arrive in canonical order, so nr = index+1).
+  const named = useMemo(
+    () => books.map((b, i) => ({ ...b, displayName: localizedNames?.[i + 1] ?? b.name })),
+    [books, localizedNames],
+  );
+
   const q = query.trim().toLowerCase();
   const filtered = useMemo(
-    () => (q ? books.filter((b) => b.name.toLowerCase().includes(q)) : books),
-    [books, q],
+    () =>
+      q
+        ? named.filter((b) => b.name.toLowerCase().includes(q) || b.displayName.toLowerCase().includes(q))
+        : named,
+    [named, q],
   );
 
   // Search always overrides into the list view so results are visible.
-  const openBook = !q && openBookId ? books.find((b) => b.id === openBookId) : undefined;
+  const openBook = !q && openBookId ? named.find((b) => b.id === openBookId) : undefined;
 
   if (openBook) {
     return (
@@ -38,7 +49,7 @@ export function BiblePicker({ books, currentBookId, currentChapter, onSelect }: 
         <SearchInput value={query} onChangeText={setQuery} placeholder="Find a book" />
         <BackRow label="Books" onPress={() => setOpenBookId(null)} />
         <ScrollView style={styles.fill} contentContainerStyle={styles.gridContent} bounces={false}>
-          <Text style={[styles.bookHeading, { color: theme.text, fontFamily: Fonts.serif }]}>{openBook.name}</Text>
+          <Text style={[styles.bookHeading, { color: theme.text, fontFamily: Fonts.serif }]}>{openBook.displayName}</Text>
           <View style={styles.grid}>
             {Array.from({ length: openBook.chapters }, (_, i) => {
               const ch = i + 1;
@@ -75,7 +86,7 @@ export function BiblePicker({ books, currentBookId, currentChapter, onSelect }: 
             style={styles.bookRow}
           >
             <Text style={[styles.bookName, { color: theme.text, fontWeight: b.id === currentBookId ? '700' : '500' }]}>
-              {b.name}
+              {b.displayName}
             </Text>
             <Text style={[styles.chev, { color: theme.textSecondary }]}>›</Text>
           </Pressable>

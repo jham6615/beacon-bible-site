@@ -152,6 +152,30 @@ const asStringArray = (v: unknown): string[] =>
 
 type ChatMsg = { role: string; content: string };
 
+/**
+ * Parse the model's JSON reply. When the model hits the token cap mid-answer the JSON arrives
+ * truncated (unterminated string, no closing brace) — salvage the "content" field so the reader
+ * still sees the partial answer instead of a silently empty reply.
+ */
+function parseModelJson(raw: string): Record<string, unknown> | null {
+  // Non-English prompts occasionally come back wrapped in ```json … ``` fences; strip them before parse.
+  const unwrapped = raw.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+  try {
+    return JSON.parse(unwrapped);
+  } catch {
+    // Recover everything up to the last complete escape sequence of the content string.
+    const m = unwrapped.match(/"content"\s*:\s*"((?:[^"\\]|\\.)*)/);
+    if (m) {
+      try {
+        return { content: JSON.parse(`"${m[1]}"`) };
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 /** Sends ready-made messages to the proxy and returns the model's parsed JSON object. */
 async function callAI(messages: ChatMsg[], temperature: number, maxTokens: number): Promise<Record<string, unknown>> {
   const { data, error } = await supabase.functions.invoke('ai', { body: { messages, temperature, maxTokens } });
@@ -159,14 +183,10 @@ async function callAI(messages: ChatMsg[], temperature: number, maxTokens: numbe
   if (data && typeof data === 'object' && 'error' in data) {
     throw new Error(String((data as { error: unknown }).error));
   }
-  const content = (data as { content?: string })?.content ?? '{}';
-  // Non-English prompts occasionally come back wrapped in ```json … ``` fences; strip them before parse.
-  const unwrapped = content.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-  try {
-    return JSON.parse(unwrapped);
-  } catch {
-    return {};
-  }
+  const parsed = parseModelJson((data as { content?: string })?.content ?? '{}');
+  // Throw (instead of returning {}) so the chat shows its normal error state and the user can retry.
+  if (!parsed) throw new Error('The answer came back garbled. Please try asking again.');
+  return parsed;
 }
 
 /** Sentence telling the AI what passage the user is on — appended as a second system message. */
@@ -183,8 +203,9 @@ export async function generate(messages: ApiMessage[], context?: ChatContext): P
   const sys: ChatMsg[] = [{ role: 'system', content: CHAT_SYSTEM_PROMPT }];
   const ctx = buildContextLine(context);
   if (ctx) sys.push({ role: 'system', content: ctx });
-  // Non-Latin scripts (CJK, Arabic) cost more tokens per word — give them headroom to finish.
-  const out = await callAI([...sys, ...messages], 0.7, 1800);
+  // Non-Latin scripts (CJK, Arabic) cost 2-3× the tokens per sentence — 1800 proved too tight for
+  // Korean answers (they truncated mid-paragraph), so give the model real headroom to finish.
+  const out = await callAI([...sys, ...messages], 0.7, 3500);
   return {
     content: typeof out.content === 'string' ? out.content : '',
     sources: asStringArray(out.sources),

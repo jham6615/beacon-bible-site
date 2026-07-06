@@ -1,4 +1,4 @@
-// Scripture Ask — desktop (Electron) wrapper.
+// Beacon Bible — desktop (Electron) wrapper.
 //
 // The desktop app is a native window around the live web app (beacon-bible.vercel.app). Because it
 // loads the deployed site, it auto-updates whenever we deploy to Vercel — no desktop rebuild needed
@@ -20,7 +20,7 @@ function browserUserAgent(win) {
   return win.webContents
     .getUserAgent()
     .replace(/\sElectron\/[\d.]+/, '')
-    .replace(/\sScripture Ask\/[\d.]+/, '');
+    .replace(/\sBeacon Bible\/[\d.]+/, '');
 }
 
 function createWindow() {
@@ -29,7 +29,7 @@ function createWindow() {
     height: 800,
     minWidth: 380,
     minHeight: 600,
-    title: 'Scripture Ask',
+    title: 'Beacon Bible',
     backgroundColor: '#FAF9F5',
     autoHideMenuBar: true,
     webPreferences: {

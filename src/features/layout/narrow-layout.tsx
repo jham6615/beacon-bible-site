@@ -28,6 +28,8 @@ export function NarrowLayout() {
   // Default to "reveal" so whole-chapter suggestions are always available, even with nothing selected.
   const [snap, setSnap] = useState<SheetSnap>('reveal');
   const [convoH, setConvoH] = useState(0);
+  // Live sheet height so the reader's floating chapter arrows ride just above it.
+  const [sheetH, setSheetH] = useState(0);
   const prevHasSelection = useRef(false);
 
   useEffect(() => {
@@ -45,8 +47,14 @@ export function NarrowLayout() {
 
   return (
     <View style={{ flex: 1 }}>
-      <ReaderScreen mode="sheet" peekInset={peek} />
-      <BottomSheet openSnap={snap} onSnapChange={setSnap} header={<SheetHeader />} expandedContentH={convoH}>
+      <ReaderScreen mode="sheet" peekInset={peek} navInset={sheetH} />
+      <BottomSheet
+        openSnap={snap}
+        onSnapChange={setSnap}
+        header={<SheetHeader />}
+        expandedContentH={convoH}
+        onTargetHeight={setSheetH}
+      >
         <ChatPanel
           mode="sheet"
           expanded={snap === 'expanded' || snap === 'half'}

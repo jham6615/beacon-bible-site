@@ -170,7 +170,7 @@ export default function PaywallScreen() {
           </>
         ) : !ready ? (
           <Text style={[styles.note, { color: theme.textSecondary }]}>
-            Premium subscriptions are available in the Scripture Ask app on your phone.
+            Premium subscriptions are available in the Beacon Bible app on your phone.
           </Text>
         ) : loading ? (
           <ActivityIndicator color={theme.text} style={{ paddingVertical: Spacing.three }} />

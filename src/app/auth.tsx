@@ -202,7 +202,7 @@ export default function AuthScreen() {
           {mode === 'signUp' ? 'Create your account' : 'Welcome back'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          {mode === 'signUp' ? 'Sign up to explore with Scripture Ask.' : 'Sign in to continue.'}
+          {mode === 'signUp' ? 'Sign up to explore with Beacon Bible.' : 'Sign in to continue.'}
         </Text>
 
         {appleAvailable && (

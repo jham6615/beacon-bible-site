@@ -32,6 +32,9 @@ type Props = {
   children?: ReactNode;
   /** Natural pixel height of the expanded conversation; lets the sheet hug it instead of a fixed ratio. */
   expandedContentH?: number;
+  /** Reports the sheet's settled height (px from screen bottom) so siblings — e.g. the reader's
+   *  floating chapter arrows — can position themselves just above it. */
+  onTargetHeight?: (h: number) => void;
 };
 
 export function BottomSheet({
@@ -40,6 +43,7 @@ export function BottomSheet({
   header,
   children,
   expandedContentH = 0,
+  onTargetHeight,
 }: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -75,6 +79,11 @@ export function BottomSheet({
   const heightSV = useSharedValue(handleH + contentH);
   const startH = useSharedValue(0);
   const kbOffset = useSharedValue(0);
+
+  // Let siblings track where the sheet's top edge settles (drag positions in between aren't reported).
+  useEffect(() => {
+    onTargetHeight?.(targetH);
+  }, [targetH, onTargetHeight]);
 
   useEffect(() => {
     const target =

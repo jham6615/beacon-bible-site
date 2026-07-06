@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
   FlatList,
-  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -14,15 +15,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Spacing } from '@/constants/theme';
-import { AccountButton } from '@/features/auth/account-button';
+import { NoteEditorModal } from '@/features/selection/note-editor-modal';
+import { SelectionActionBar } from '@/features/selection/selection-action-bar';
 import { useTheme } from '@/hooks/use-theme';
 import { DEFAULT_BOOK_ID, type ReadingPage, getBooks, getReadingPages } from '@/lib/bible';
 import { useChatStore } from '@/store/chat-store';
 import { useReaderStore } from '@/store/reader-store';
 import { useSelectionStore } from '@/store/selection-store';
-import { useVersionStore } from '@/store/versions-store';
+import { useLocalizedBookName, useVersionStore } from '@/store/versions-store';
 import { BiblePicker } from './bible-picker';
 import { ChapterPage } from './chapter-page';
+import { DISPLAY_PANEL_HEIGHT, DisplayPanel } from './display-panel';
 import { PickerDropdown } from './picker-dropdown';
 import { ReferenceButton } from './reference-button';
 import { VersionPicker } from './version-picker';
@@ -41,13 +44,8 @@ const findPageIndex = (bookId: string, chapter: number) => {
   return i >= 0 ? i : DEFAULT_INDEX;
 };
 
-// Header geometry shared by the pill-cap math and styles.header below. Edge padding is deliberately
-// tighter than the body text's so narrow phones keep enough budget for the centered pill.
+// Header edge padding, shared with the floating chapter arrows so the corners line up.
 const HEADER_PAD = Spacing.three;
-const CLUSTER_BREATH = Spacing.one;
-// Generous vertically, slim horizontally so the arrows' slop never swallows taps meant for the
-// adjacent corner buttons or the pill.
-const ARROW_HIT_SLOP = { top: 12, bottom: 12, left: 4, right: 4 };
 
 type Props =
   | {
@@ -55,19 +53,20 @@ type Props =
       mode: 'sheet';
       /** Height of the collapsed sheet showing above the reader's bottom edge. */
       peekInset: number;
+      /** Live sheet height — the floating chapter arrows ride just above it. */
+      navInset?: number;
     }
   | {
       /** Desktop split-pane layout. */
       mode: 'column';
       /** Width of the reader's pane — the horizontal pager must size pages to this, not the window. */
       paneWidth: number;
-      /** Hide the history button (it moves into the chat column header on desktop). */
-      hideHistoryButton?: boolean;
     };
 
 export function ReaderScreen(props: Props) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isSheet = props.mode === 'sheet';
   const width = isSheet ? windowWidth : props.paneWidth;
@@ -79,7 +78,8 @@ export function ReaderScreen(props: Props) {
     const pos = useReaderStore.getState();
     return findPageIndex(pos.bookId, pos.chapter);
   });
-  const [picker, setPicker] = useState<'none' | 'book' | 'version'>('none');
+  const [picker, setPicker] = useState<'none' | 'book' | 'version' | 'display'>('none');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [headerH, setHeaderH] = useState(56);
   const listRef = useRef<FlatList<ReadingPage>>(null);
   const clearSelection = useSelectionStore((s) => s.clear);
@@ -172,75 +172,55 @@ export function ReaderScreen(props: Props) {
     if (index !== pageIndex) setPageIndex(index);
   };
 
-  const hideHistory = props.mode === 'column' && props.hideHistoryButton;
-
   // Keep the last-opened picker rendered through PickerDropdown's close animation.
-  const lastPickerRef = useRef<'book' | 'version'>('book');
+  const lastPickerRef = useRef<'book' | 'version' | 'display'>('book');
   if (picker !== 'none') lastPickerRef.current = picker;
   const activePicker = lastPickerRef.current;
 
-  // Measure the side clusters so the centered pill can be capped to the space they leave free.
-  // Seeded with the widest realistic values (☰ + arrow / arrow + "Sign in") so the first frame
-  // can't overlap; onLayout then relaxes the cap to the real widths.
-  const [clusterW, setClusterW] = useState({ left: 64, right: 110 });
-  const onClusterLayout = (side: 'left' | 'right') => (e: LayoutChangeEvent) => {
-    const w = Math.ceil(e.nativeEvent.layout.width);
-    setClusterW((c) => (Math.abs(c[side] - w) <= 1 ? c : { ...c, [side]: w }));
-  };
+  // Book name in the active version's language (e.g. "Juan 3" while reading a Spanish Bible).
+  const localizedBookName = useLocalizedBookName(
+    current?.bookId ?? DEFAULT_BOOK_ID,
+    current?.bookName ?? 'Bible',
+  );
 
-  // Pill placement: true screen-center while the symmetric free space is comfortable; on tight
-  // widths (narrow phones, signed-out "Sign in" widening the right cluster) fall back to centering
-  // within the actual gap between the clusters — a few points off true center, but the pill is
-  // never overlapped or clipped. The pill ellipsizes (version first) once it hits the cap.
-  const reservedL = HEADER_PAD + clusterW.left + CLUSTER_BREATH;
-  const reservedR = HEADER_PAD + clusterW.right + CLUSTER_BREATH;
-  const symmetric = Math.max(reservedL, reservedR);
-  const trueCenter = width - 2 * symmetric >= 220;
-  const centerInsets = trueCenter
-    ? { left: symmetric, right: symmetric }
-    : { left: reservedL, right: reservedR };
-  const pillMaxWidth = Math.max(0, width - centerInsets.left - centerInsets.right);
+  const menuAction = (fn: () => void) => () => {
+    setMenuOpen(false);
+    fn();
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top }]}>
+      {/* YouVersion-style header: reference pill on the left, search + overflow menu on the right. */}
       <View style={styles.header} onLayout={(e) => setHeaderH(Math.round(e.nativeEvent.layout.height))}>
-        <View style={styles.sideCluster} onLayout={onClusterLayout('left')}>
-          {!hideHistory && (
-            <Pressable onPress={() => openHistory(true)} hitSlop={10} style={styles.historyButton}>
-              <Text style={[styles.historyIcon, { color: theme.text }]}>☰</Text>
-            </Pressable>
-          )}
-          <Pressable
-            onPress={() => goToPage(pageIndex - 1)}
-            disabled={pageIndex === 0}
-            hitSlop={ARROW_HIT_SLOP}
-            style={styles.navButton}
-          >
-            <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === 0 ? 0.25 : 1 }]}>‹</Text>
-          </Pressable>
-        </View>
-
-        <View style={[styles.center, centerInsets]} pointerEvents="box-none">
+        <View style={styles.pillSlot}>
           <ReferenceButton
-            bookLabel={current ? `${current.bookName} ${current.chapter}` : 'Bible'}
+            bookLabel={current ? `${localizedBookName} ${current.chapter}` : 'Bible'}
             versionLabel={versionCode.toUpperCase()}
-            active={picker === 'none' ? null : picker}
-            maxWidth={pillMaxWidth}
+            active={picker === 'book' || picker === 'version' ? picker : null}
             onPressBook={() => setPicker((p) => (p === 'book' ? 'none' : 'book'))}
             onPressVersion={() => setPicker((p) => (p === 'version' ? 'none' : 'version'))}
           />
         </View>
 
-        <View style={styles.sideClusterRight} onLayout={onClusterLayout('right')}>
+        <View style={styles.rightCluster}>
           <Pressable
-            onPress={() => goToPage(pageIndex + 1)}
-            disabled={pageIndex === lastIndex}
-            hitSlop={ARROW_HIT_SLOP}
-            style={styles.navButton}
+            onPress={() => router.push('/search')}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Search the Bible"
+            style={styles.iconButton}
           >
-            <Text style={[styles.navIcon, { color: theme.text, opacity: pageIndex === lastIndex ? 0.25 : 1 }]}>›</Text>
+            <Ionicons name="search" size={20} color={theme.text} />
           </Pressable>
-          <AccountButton />
+          <Pressable
+            onPress={() => setMenuOpen((m) => !m)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            style={styles.iconButton}
+          >
+            <Text style={[styles.iconGlyph, { color: theme.text }]}>⋯</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -293,9 +273,80 @@ export function ReaderScreen(props: Props) {
         />
       )}
 
+      {/* Floating chapter arrows, YouVersion-style: bottom corners over the text. In sheet mode
+          they ride just above the sheet (its height already includes the bottom safe area) and
+          disappear once the sheet takes over the screen (half/expanded). */}
+      {(() => {
+        const sheetTop = isSheet ? (props.navInset || peekInset + insets.bottom) : 0;
+        const hidden = isSheet && sheetTop > windowHeight * 0.45;
+        const bottom = isSheet ? sheetTop + Spacing.three : insets.bottom + Spacing.four;
+        return hidden ? null : (
+          <View pointerEvents="box-none" style={[styles.floatNav, { bottom }]}>
+        <Pressable
+          onPress={() => goToPage(pageIndex - 1)}
+          disabled={pageIndex === 0}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Previous chapter"
+          style={[styles.floatBtn, { backgroundColor: theme.backgroundElement, opacity: pageIndex === 0 ? 0.35 : 0.95 }]}
+        >
+          <Text style={[styles.floatIcon, { color: theme.text }]}>‹</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => goToPage(pageIndex + 1)}
+          disabled={pageIndex === lastIndex}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Next chapter"
+          style={[styles.floatBtn, { backgroundColor: theme.backgroundElement, opacity: pageIndex === lastIndex ? 0.35 : 0.95 }]}
+        >
+          <Text style={[styles.floatIcon, { color: theme.text }]}>›</Text>
+        </Pressable>
+          </View>
+        );
+      })()}
+
+      {/* Overflow menu (⋯): compact anchored popover, YouVersion-style. */}
+      {menuOpen && (
+        <>
+          <Pressable style={styles.menuScrim} onPress={() => setMenuOpen(false)} accessibilityLabel="Close menu" />
+          <View
+            style={[
+              styles.menu,
+              { top: insets.top + headerH + Spacing.one, backgroundColor: theme.background, borderColor: theme.backgroundSelected },
+            ]}
+          >
+            <Pressable style={styles.menuRow} onPress={menuAction(() => setPicker('display'))}>
+              <Text style={[styles.menuGlyph, { color: theme.text }]}>Aa</Text>
+              <Text style={[styles.menuLabel, { color: theme.text }]}>Fonts & Settings</Text>
+            </Pressable>
+            <Pressable style={styles.menuRow} onPress={menuAction(() => openHistory(true))}>
+              <Text style={[styles.menuGlyph, { color: theme.text }]}>☰</Text>
+              <Text style={[styles.menuLabel, { color: theme.text }]}>History</Text>
+            </Pressable>
+            <Pressable style={styles.menuRow} onPress={menuAction(() => router.push('/auth'))}>
+              <View style={styles.menuGlyphSlot}>
+                <Ionicons name="person-circle-outline" size={20} color={theme.text} />
+              </View>
+              <Text style={[styles.menuLabel, { color: theme.text }]}>Account</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+
+      {/* Highlight/note/copy toolbar while verses are selected. Sits under the header (zIndex 20)
+          so the picker dropdown (zIndex 30) still covers it when open. */}
+      <SelectionActionBar top={insets.top + headerH + Spacing.two} />
+      <NoteEditorModal />
+
       {/* Book/version pickers slide down from under the header. PickerDropdown keeps the last content
           mounted through its close animation, so we render whichever picker was last active. */}
-      <PickerDropdown open={picker !== 'none'} onClose={() => setPicker('none')} top={insets.top + headerH}>
+      <PickerDropdown
+        open={picker !== 'none'}
+        onClose={() => setPicker('none')}
+        top={insets.top + headerH}
+        contentH={activePicker === 'display' ? DISPLAY_PANEL_HEIGHT : undefined}
+      >
         {activePicker === 'book' ? (
           <BiblePicker
             books={BOOKS}
@@ -303,7 +354,7 @@ export function ReaderScreen(props: Props) {
             currentChapter={current?.chapter ?? 1}
             onSelect={jumpTo}
           />
-        ) : (
+        ) : activePicker === 'version' ? (
           <VersionPicker
             currentCode={versionCode}
             onSelect={(code, name) => {
@@ -311,6 +362,8 @@ export function ReaderScreen(props: Props) {
               setPicker('none');
             }}
           />
+        ) : (
+          <DisplayPanel />
         )}
       </PickerDropdown>
     </View>
@@ -321,29 +374,64 @@ const styles = StyleSheet.create({
   // position:relative makes this the containing block for the absolute PickerDropdown, so on desktop
   // the dropdown confines to the reader pane instead of spilling under the chat column.
   container: { flex: 1, position: 'relative' },
-  // position:relative needed so the absolute center pill is positioned within the header.
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: Spacing.three,
     paddingHorizontal: HEADER_PAD,
     paddingVertical: Spacing.two,
-    position: 'relative',
   },
-  sideCluster: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  sideClusterRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
-  historyButton: { height: 32, justifyContent: 'center' },
-  historyIcon: { fontSize: 20 },
-  navButton: { width: 32, alignItems: 'center', justifyContent: 'center' },
-  navIcon: { fontSize: 30, lineHeight: 34 },
-  // The pill's absolute slot. Horizontal insets are injected per-render (measured cluster widths) so
-  // the pill centers in the free space and can never paint over the corner buttons. The wrapper is
-  // box-none so stray taps in the empty slot fall through.
-  center: {
+  // The pill hugs the left edge and gives way (ellipsizing) before the right icons ever clip.
+  pillSlot: { flexShrink: 1, alignItems: 'flex-start' },
+  rightCluster: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flexShrink: 0 },
+  iconButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  iconGlyph: { fontSize: 20, fontWeight: '600' },
+  // Invisible full-screen catcher so tapping anywhere else dismisses the menu.
+  menuScrim: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 34 },
+  menu: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
+    right: HEADER_PAD,
+    zIndex: 35,
+    minWidth: 210,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: Spacing.one,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+  },
+  menuGlyph: { fontSize: 16, fontWeight: '700', width: 26, textAlign: 'center' },
+  menuGlyphSlot: { width: 26, alignItems: 'center' },
+  menuLabel: { fontSize: 15, fontWeight: '600' },
+  floatNav: {
+    position: 'absolute',
+    left: HEADER_PAD,
+    right: HEADER_PAD,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  floatBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
   },
+  floatIcon: { fontSize: 26, lineHeight: 30, fontWeight: '600' },
 });

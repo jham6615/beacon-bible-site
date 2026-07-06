@@ -1,3 +1,4 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Spacing } from '@/constants/theme';
@@ -16,7 +17,7 @@ export function SearchInput({
   const theme = useTheme();
   return (
     <View style={[styles.searchWrap, { backgroundColor: theme.backgroundElement }]}>
-      <Text style={[styles.searchIcon, { color: theme.textSecondary }]}>⌕</Text>
+      <Ionicons name="search" size={16} color={theme.textSecondary} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -58,7 +59,6 @@ const styles = StyleSheet.create({
     height: 40,
     marginBottom: Spacing.two,
   },
-  searchIcon: { fontSize: 18 },
   searchInput: { flex: 1, fontSize: 16, paddingVertical: 0 },
   clear: { fontSize: 14, fontWeight: '600' },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.one, paddingVertical: Spacing.two },

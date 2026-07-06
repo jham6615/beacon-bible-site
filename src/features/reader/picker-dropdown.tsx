@@ -12,6 +12,9 @@ type Props = {
   onClose: () => void;
   /** Y offset where the dropdown anchors (below the header). */
   top: number;
+  /** Fixed content height. Defaults to the tall book/version-picker height; short panels
+   *  (e.g. the Aa display settings) pass their own so the dropdown hugs the content. */
+  contentH?: number;
   children: ReactNode;
 };
 
@@ -23,11 +26,11 @@ type Props = {
  * Children mount on open and unmount after the close animation, so each open starts fresh (the picker
  * resets to the current book/version) and nothing fetches at app launch.
  */
-export function PickerDropdown({ open, onClose, top, children }: Props) {
+export function PickerDropdown({ open, onClose, top, contentH, children }: Props) {
   const theme = useTheme();
   const { height: screenH } = useWindowDimensions();
   // Fixed open height so book↔version swaps don't jump; the list scrolls within it.
-  const openH = Math.min(460, Math.max(220, screenH - top - 24));
+  const openH = Math.min(contentH ?? 460, Math.max(220, screenH - top - 24));
 
   const [mounted, setMounted] = useState(open);
   const progress = useSharedValue(open ? 1 : 0);

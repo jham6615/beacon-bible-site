@@ -1,4 +1,4 @@
-// Supabase Edge Function — AI proxy for Bible Friend.
+// Supabase Edge Function — AI proxy for Beacon Bible.
 //
 // This is a thin pass-through: the app sends ready-made chat messages, this adds the secret OpenAI key
 // (read from a Secret named OPENAI_API_KEY — NOT written in this code) and returns the model's reply.

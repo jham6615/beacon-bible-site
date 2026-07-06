@@ -7,6 +7,8 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+import type { HighlightColor } from '@/lib/annotations';
+
 export const Colors = {
   light: {
     text: '#000000',
@@ -25,6 +27,16 @@ export const Colors = {
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+
+/** Verse-highlight swatches. Light stops keep black text readable; dark stops keep white text readable. */
+export const HighlightPalette: Record<HighlightColor, { light: string; dark: string }> = {
+  yellow: { light: '#F7E6A3', dark: '#57491B' },
+  green: { light: '#CFE8C5', dark: '#2C4A2E' },
+  blue: { light: '#C4DDF2', dark: '#1E3A52' },
+  pink: { light: '#F6CBDB', dark: '#4E2A3B' },
+  purple: { light: '#DDD2F2', dark: '#3B2F58' },
+  orange: { light: '#F7D6B0', dark: '#573A18' },
+};
 
 export const Fonts = Platform.select({
   ios: {

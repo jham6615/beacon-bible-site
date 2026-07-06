@@ -68,9 +68,7 @@ export function WideLayout() {
 
   return (
     <SplitPane
-      left={(readerWidth) => (
-        <ReaderScreen mode="column" paneWidth={readerWidth} hideHistoryButton={!collapsed} />
-      )}
+      left={(readerWidth) => <ReaderScreen mode="column" paneWidth={readerWidth} />}
       right={chat}
       chatWidth={chatWidth}
       collapsed={collapsed}

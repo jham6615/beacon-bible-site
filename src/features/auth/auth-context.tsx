@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 
 import { identifyUser } from '@/lib/revenuecat';
 import { supabase } from '@/lib/supabase';
+import { useAnnotationsStore } from '@/store/annotations-store';
 import { useChatStore } from '@/store/chat-store';
 import { useSubscriptionStore } from '@/store/subscription-store';
 
@@ -27,6 +28,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         useChatStore.getState().resumeLatest();
         // Pull cross-platform premium (web Stripe / Supabase entitlements) for this account.
         useSubscriptionStore.getState().refreshServerEntitlement();
+        // Any chapter that loaded (empty) before the session restored refetches its annotations.
+        useAnnotationsStore.getState().reset();
       }
     });
 
@@ -42,6 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         useChatStore.getState().reset();
         // Drop the server-granted premium on sign-out (native store entitlement, if any, stays).
         useSubscriptionStore.getState().setServerPremium(false);
+      }
+      // Highlights/notes belong to the account — reload on sign-in, clear on sign-out.
+      if (_event === 'SIGNED_IN' || _event === 'SIGNED_OUT') {
+        useAnnotationsStore.getState().reset();
       }
     });
 
